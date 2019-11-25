@@ -1,0 +1,189 @@
+---
+title: "GP2_VivekNadakuduty"
+author: "Vivek Nadakuduty"
+date: "11/3/2019"
+output: html_document
+---
+Progress Report:
+
+My task is to create a scree plot using PCA. As of right now, I have plotted a scree plot correctly using the pheno data. I still need to know how to use this data in figuring out trends with up and down regulations of expression data.
+
+```{r setup, include=FALSE}
+### EDIT!!!
+
+### We use the code chunk option "include=FALSE" because we don't need to print this information
+
+### Global knitr options
+knitr::opts_chunk$set(echo = TRUE)
+
+### Load packages/libraries that we will need
+library(tidyverse)
+#  edit! Add whatever additional packages you need here (if you haven't loaded them, RMarkdown should alert you when you go to "knit" the RMarkdown to a report)
+```
+
+```{r theme}
+### DON'T EDIT CODE IN THIS CHUNK
+
+theme_custom <- theme_bw() +
+  
+  # if we have a plot title or subtitle, let's center it
+  theme (
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  ) 
+theme_set(theme_custom)
+
+### We'll make the viridis color scale our default plotting color palette
+scale_colour_continuous <- function(...) {
+  scale_colour_viridis_c(...)
+}
+scale_fill_continuous <- function(...) {
+  scale_fill_viridis_c(...)
+}
+scale_colour_discrete <- function(...) {
+  scale_colour_viridis_d(..., begin = 0, end = 0.9)
+}
+scale_fill_discrete <- function(...) {
+  scale_fill_viridis_d(..., begin = 0, end = 0.9)
+}
+```
+```{r get_data, eval=FALSE}
+### Get list of available datasets
+### https://www.bioconductor.org/packages/3.3/bioc/vignettes/TCGAbiolinks/inst/doc/tcgaBiolinks.html#harmonized-data-1
+View(getGDCprojects())
+
+### Datasets to use for group project (I picked the ones with smallest sample size and no sex bias)
+projects <- c(
+  "TCGA-ACC",
+  "TCGA-CHOL", 
+  "TCGA-DLBC", 
+  "TCGA-KICH", 
+  "TCGA-MESO", 
+  "TCGA-UVM"
+)
+
+phenoList <-  vector(mode = "list", length = length(projects))
+names(phenoList) <- projects
+exprsList <-  vector(mode = "list", length = length(projects))
+names(exprsList) <- projects
+for (i in projects) { 
+  ### Get data (in summarized experiment ["se"]  format)
+  query <- GDCquery(
+    project = i, 
+    data.category = "Transcriptome Profiling", 
+    data.type = "Gene Expression Quantification", 
+    workflow.type = "HTSeq - FPKM"
+  )
+  GDCdownload(query)
+  se <- GDCprepare(query)
+  
+  ### Extract phenoData and remove columns that either are all different or all consistent
+  pheno_full <- as.data.frame(colData(se))
+  pheno <- janitor::remove_constant(pheno_full)
+  
+  ### Extract exprs matrix and remove lowly expressed
+  exprs_full <- assay(se)
+  keep <- rowSums(exprs_full > 1) >= 10
+  exprs <- exprs_full[keep, ]
+
+  ### Shorten the sample id
+  rownames(pheno) <- abbreviate(gsub("TCGA-OR-", "", rownames(pheno)), method = "both")
+  pheno$id <- rownames(pheno)
+  colnames(exprs) <- abbreviate(gsub("TCGA-OR-", "", colnames(exprs)), method = "both")
+  
+  ### Remove extra columns (not groups)
+  pheno$sample <- pheno$id
+  pheno$id <- NULL
+  remove_cols <- c(
+    "patient", "updated_datetime", "updated_datetime.x", "updated_datetime.y", 
+    "barcode", "diagnosis_id", "demographic_id", "exposure_id", "bcr_patient_barcode", 
+    "morphology", "treatments", 
+    "days_to_birth", "days_to_last_follow_up", "days_to_death",
+    "year_of_birth", "year_of_diagnosis", "year_of_death"
+  )
+  pheno <- pheno[ , !(colnames(pheno) %in% remove_cols)]
+  pheno <- pheno[ , !(colnames(pheno) %in% colnames(pheno)[grep("_CHOL_del|_CHOL_amp|subtype_", colnames(pheno))])]
+
+  ### Save
+  saveRDS(exprs, paste0(i, "_exprs.rds"))
+  saveRDS(pheno, paste0(i, "_pheno.rds"))
+  
+  ### Add to list
+  exprsList[[i]]  <- exprs
+  phenoList[[i]] <- pheno
+  
+  ### Clean up
+  rm(exprs)
+  rm(exprs_full)
+  rm(pheno)
+  rm(pheno_full)
+  rm(keep)
+}
+
+### Save
+saveRDS(exprsList, "all_exprs.rds")
+saveRDS(phenoList, "all_pheno.rds")
+
+### Look at
+sapply(exprsList, dim)
+sapply(phenoList, dim)
+sapply(phenoList, names)
+
+### Write out names
+rbind(
+  paste("ACC:", toString(sort(names(phenoList$`TCGA-ACC`)))),
+  paste("CHOL:", toString(sort(names(phenoList$`TCGA-CHOL`)))),
+  paste("DLBC:", toString(sort(names(phenoList$`TCGA-DLBC`)))),
+  paste("KICH:", toString(sort(names(phenoList$`TCGA-KICH`)))),
+  paste("MESO:", toString(sort(names(phenoList$`TCGA-MESO`)))),
+  paste("UVM:", toString(sort(names(phenoList$`TCGA-UVM`))))
+) %>%
+  writeLines("sample_variables.txt")
+```
+
+```{r load_data}
+### EDIT: You need to insert your dataset file names in the quotes below
+
+exprs <- readRDS(
+  "TCGA-KICH_exprs.rds"     # insert your *_exprs.rds dataset's file name here
+)
+pheno <- readRDS(
+  "TCGA-KICH_pheno.rds"     # insert your *_pheno.rds dataset's file name here
+)
+```
+
+```{r select_group}
+### EDIT!! Copy your variable of interest into a new column called "group". This will help generalize/simplify your project's code
+pheno$group <- pheno$ # insert your variable's column name here
+```
+
+```{r filter_samples}
+### You can check this using the following (many other ways to check too)
+### Make sure no "blanks" either -- 
+### sometimes missing data isn't converted to an NA but instead is just blank
+summary(as.factor(pheno$group))   
+table(is.na(pheno$group))
+```
+
+```{r pca_run}
+set.seed(1116)
+pca_obj <- prcomp(
+  exprs, center = TRUE, scale. = TRUE
+)
+names(pca_obj)
+summary(pca_obj)
+ve <- pca_obj$sdev^2 
+df_ve <- data.frame(
+  PC = as_factor(1:length(ve)),    # PC 
+  PVE = ve / sum(ve)               # proportion ve
+) 
+df_ve %>%
+  ggplot(aes(x = PC, y = PVE, fill = PC)) + 
+  geom_col(show.legend = FALSE) +
+  
+  # add kaiser criterion line
+  geom_hline(yintercept = 0.1) +
+  
+  # add plot title
+  labs(title = "Scree plot")
+```
